@@ -1,0 +1,69 @@
+// Headscale ACL policy -> /etc/headscale/acl.hujson
+//
+// Security model (this is the whole point — read references/security-model.md):
+//   * No tailscale-ssh. Devices use traditional sshd, public-key only; private keys are NOT on the VPS.
+//     So this file contains NO "ssh" block: even a compromised control plane that rewrites the ACL
+//     cannot grant passwordless login via tailscale-ssh.
+//   * No `src:* dst:*` blanket allow. Named-tag minimal allow only — shrinks the blast radius.
+//   * No autoApprovers. Exit nodes / subnet routes are approved by hand (`headscale ... approve-routes`).
+//   Under "single owner + control plane compromised", user/member/self/tag ACLs are NOT a hard
+//   boundary (an attacker who owns Headscale can tag their own node anything). The real hard
+//   boundary is device-local public-key-only sshd. The ACL is defense-in-depth, reducing attack surface.
+//
+// Replace __OWNER__ with your Headscale username (the owner of these tags). Rename tags/ports to taste.
+{
+  "tagOwners": {
+    "tag:homebase": ["__OWNER__@"],   // the always-on machine abroad you connect back to
+    "tag:laptop":   ["__OWNER__@"],   // a travel laptop
+    "tag:phone":    ["__OWNER__@"],   // a phone
+    "tag:vps":      ["__OWNER__@"],   // the VPS running Headscale + DERP
+    "tag:cn-exit":  ["__OWNER__@"],   // optional disposable residential exit node INSIDE China
+  },
+
+  // Minimal allow: only let your own devices reach the specific ports the home base actually serves.
+  // 22 = traditional sshd (pubkey only); 53 = the home base's local DNS for *.pc (needed once
+  // accept-dns is on); 80 = a reverse proxy for *.pc; add your real service ports as needed.
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:laptop", "tag:phone"],
+      "dst": [
+        "tag:homebase:22",
+        "tag:homebase:53",
+        "tag:homebase:80",
+        // "tag:homebase:8443",   // example: an app port you actually expose
+      ],
+    },
+    // laptop reachable by phone + home base over SSH (pubkey only).
+    {
+      "action": "accept",
+      "src": ["tag:phone", "tag:homebase"],
+      "dst": ["tag:laptop:22"],
+    },
+    // Management channel: home base / laptop SSH into the VPS over the tailnet
+    // (the only network entry once public 22 is closed; out-of-band fallback = provider web console).
+    {
+      "action": "accept",
+      "src": ["tag:homebase", "tag:laptop"],
+      "dst": ["tag:vps:22"],
+    },
+    // Management channel: one-way SSH INTO the in-China exit node. SECURITY CORE: tag:cn-exit has
+    // NO `src` rule anywhere -> it cannot initiate to anything. Even if that (hostile-by-assumption)
+    // box is fully compromised, it cannot reach homebase/laptop/phone/vps. Treat it as disposable.
+    {
+      "action": "accept",
+      "src": ["tag:homebase", "tag:laptop", "tag:phone"],
+      "dst": ["tag:cn-exit:22"],
+    },
+    // Exit node: let phone/laptop reach the public internet THROUGH an approved exit node.
+    // Without this, selecting an exit node leaves the device with no internet.
+    {
+      "action": "accept",
+      "src": ["tag:phone", "tag:laptop"],
+      "dst": ["autogroup:internet:*"],
+    },
+  ],
+
+  // No "ssh" block (tailscale-ssh is globally off).
+  // No autoApprovers (exit nodes / routes approved by hand).
+}

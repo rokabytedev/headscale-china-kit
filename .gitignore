@@ -1,0 +1,15 @@
+# Never commit secrets. This kit is designed so secrets live OUTSIDE the repo.
+keys/
+*.key
+*.pem
+id_*
+*.token
+*.authkey
+.env
+.env.*
+
+# Local working files / scratch
+*.local
+.DS_Store
+scratch/
+*.log

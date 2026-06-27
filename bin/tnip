@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# tnip <hostname|self> — print a tailnet peer's current Tailscale IPv4.
+# Works whether you're on the official Tailscale cloud or your self-hosted Headscale —
+# it reads live status, so the IP can change and this still resolves. Zero maintenance after a switch.
+# No external deps (just tailscale + awk; no jq).
+#
+# Examples:
+#   ssh user@$(tnip homebase)
+#   curl http://$(tnip homebase):8443
+#   tnip self
+set -euo pipefail
+
+host="${1:-}"
+[[ -z "$host" ]] && { echo "usage: tnip <hostname|self>" >&2; exit 2; }
+command -v tailscale >/dev/null || { echo "tnip: tailscale not found" >&2; exit 1; }
+
+if [[ "$host" == "self" ]]; then
+  tailscale ip -4 2>/dev/null | head -n1
+  exit 0
+fi
+
+# `tailscale status` lines look like:  100.64.0.10  homebase  user@  linux  ...
+ip="$(tailscale status 2>/dev/null | awk -v h="$host" '$2==h {print $1; exit}')"
+
+if [[ -z "$ip" ]]; then
+  echo "tnip: peer \"$host\" not found in the current tailnet. Online peers:" >&2
+  tailscale status 2>/dev/null | awk '{printf "        %s\t%s\n",$2,$1}' >&2
+  exit 1
+fi
+echo "$ip"

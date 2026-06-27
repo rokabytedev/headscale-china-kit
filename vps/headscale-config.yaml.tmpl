@@ -1,0 +1,96 @@
+# Headscale config template -> deployed to /etc/headscale/config.yaml
+# install-headscale.sh substitutes the __PLACEHOLDERS__ and validates before landing it.
+# Design goals: (1) your own domain, (2) built-in DERP (self-hosted relay),
+# (3) relay only through your own DERP, (4) split-DNS for a private service domain.
+# Reference: https://headscale.net/stable/ref/configuration/
+
+# ---- Public address (install script seds __HS_HOSTNAME__ / __VPS_IP__ to real values) ----
+server_url: https://__HS_HOSTNAME__
+listen_addr: 0.0.0.0:443          # Headscale itself (incl. DERP-over-HTTPS) on 443 — the only public port
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+# ---- Node IP ranges (Tailscale CGNAT defaults) ----
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# ---- Noise protocol key ----
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+# ---- Database ----
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+
+# ---- TLS: Let's Encrypt via TLS-ALPN-01 on 443. ----
+# TLS-ALPN-01 (not HTTP-01) means issuance AND renewal both ride 443, so you never
+# have to keep port 80 open. Avoids the "renewal fails because 80 is closed" self-lock.
+tls_letsencrypt_hostname: __HS_HOSTNAME__
+tls_letsencrypt_cache_dir: /var/lib/headscale/cache
+tls_letsencrypt_challenge_type: TLS-ALPN-01
+
+# ---- Built-in DERP, and ONLY this one (equivalent to OmitDefaultRegions) ----
+derp:
+  server:
+    enabled: true
+    region_id: 900
+    region_code: "self"
+    region_name: "Self-hosted (VPS)"
+    # STUN bound to localhost on purpose: a public 3478 STUN endpoint emits a
+    # cleartext "magic cookie" the GFW can fingerprint as a personal relay.
+    # Binding 127.0.0.1 + not opening 3478 hides that fingerprint. P2P hole-punching
+    # into China usually fails anyway, so traffic rides the 443 DERP relay regardless.
+    stun_listen_addr: "127.0.0.1:3478"
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+    ipv4: __VPS_IP__                 # VPS public IP (clients find the built-in DERP here); install script injects
+  # Do NOT pull in official/external DERP — clients use only the built-in relay above.
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 24h
+
+# ---- DNS: MagicDNS + hand a private service domain to the home base via split-DNS ----
+dns:
+  magic_dns: true
+  base_domain: tailnet.internal   # MagicDNS suffix; .internal is the ICANN-reserved private TLD, never collides
+  override_local_dns: false       # KEY: do NOT override the device's local DNS. With accept-dns on, only the
+                                  #   split domain + MagicDNS short names go through Tailscale; everything else
+                                  #   keeps using the device's local (China-usable) resolver. If true, `global`
+                                  #   becomes mandatory and ALL DNS is forced through it (breaks browsing in China).
+  nameservers:
+    # Keep `global` EMPTY: do not override the device's resolver. Putting 1.1.1.1 / 8.8.8.8
+    # here forces all DNS through them — both are commonly tampered with in China -> DNS breaks.
+    global: []
+    # Hand the private service domain (here: "pc") to the home base's local DNS (e.g. dnsmasq).
+    split:
+      pc:
+        - __HOMEBASE_TAILNET_IP__
+  search_domains: []
+  # Static A records so devices resolve <name>.pc LOCALLY (no forwarding). When an exit node
+  # is ON, split-DNS forwarding gets captured by the exit and breaks; static records resolve
+  # locally and keep working with the exit on. extra_records has no wildcard — list each name.
+  # Replace these examples with your own service names.
+  extra_records:
+    - name: "app.pc"
+      type: "A"
+      value: "__HOMEBASE_TAILNET_IP__"
+    - name: "files.pc"
+      type: "A"
+      value: "__HOMEBASE_TAILNET_IP__"
+
+# ---- Misc ----
+log:
+  level: info
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+# ACL policy file (see acl.hujson.tmpl; install script lands it here)
+policy:
+  mode: file
+  path: /etc/headscale/acl.hujson

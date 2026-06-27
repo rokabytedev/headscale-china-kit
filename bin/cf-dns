@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""cf-dns — create/update a Cloudflare A record (idempotent). Never prints the token.
+
+Usage:
+  cf-dns set <name> <ipv4>      # create or update an A record (DNS-only / no proxy, TTL 60)
+  cf-dns get <name>             # show a record
+  cf-dns list <zone>            # list all records in a zone
+
+Token: read from ~/.config/cloudflare/<zone>.token (zone inferred from <name>, or set CF_ZONE to
+override for multi-label TLDs like example.co.uk). Create a scoped API token with Zone:DNS:Edit on
+just your zone — nothing broader.
+
+Why DNS-only (grey cloud), never proxied (orange cloud): Cloudflare's proxy does not
+support Headscale's TS2021 Noise/HTTP2 handshake and won't relay DERP's UDP STUN, so
+proxying breaks the mesh. Use Cloudflare here ONLY as a plain DNS host.
+"""
+import sys, os, json, urllib.request, urllib.error
+
+API = "https://api.cloudflare.com/client/v4"
+
+def zone_of(name):
+    parts = name.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else name
+
+def token_for(zone):
+    p = os.path.expanduser(f"~/.config/cloudflare/{zone}.token")
+    if not os.path.exists(p):
+        sys.exit(f"no token file: {p}  (create a scoped Zone:DNS:Edit token and save it there, chmod 600)")
+    return open(p).read().strip()
+
+def call(method, path, tok, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(API + path, data=data, method=method,
+        headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=20))
+    except urllib.error.HTTPError as e:
+        return json.load(e)
+
+def zone_id(zone, tok):
+    d = call("GET", f"/zones?name={zone}", tok)
+    if not d.get("success") or not d.get("result"):
+        sys.exit(f"zone lookup failed: {d.get('errors')}")
+    return d["result"][0]["id"]
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    cmd = sys.argv[1]
+    if cmd == "set":
+        if len(sys.argv) < 4:
+            sys.exit("usage: cf-dns set <name> <ipv4>")
+        name, ip = sys.argv[2], sys.argv[3]
+        zone = os.environ.get("CF_ZONE") or zone_of(name); tok = token_for(zone); zid = zone_id(zone, tok)
+        ex = call("GET", f"/zones/{zid}/dns_records?type=A&name={name}", tok)
+        rec = {"type":"A","name":name,"content":ip,"ttl":60,"proxied":False}
+        if ex.get("result"):
+            rid = ex["result"][0]["id"]
+            d = call("PUT", f"/zones/{zid}/dns_records/{rid}", tok, rec)
+            action = "updated"
+        else:
+            d = call("POST", f"/zones/{zid}/dns_records", tok, rec)
+            action = "created"
+        if d.get("success"):
+            r = d["result"]
+            print(f"{action}: {r['name']} A -> {r['content']} proxied={r['proxied']} ttl={r['ttl']}")
+        else:
+            sys.exit(f"FAILED: {d.get('errors')}")
+    elif cmd == "get":
+        if len(sys.argv) < 3:
+            sys.exit("usage: cf-dns get <name>")
+        name = sys.argv[2]; zone = os.environ.get("CF_ZONE") or zone_of(name); tok = token_for(zone); zid = zone_id(zone, tok)
+        d = call("GET", f"/zones/{zid}/dns_records?name={name}", tok)
+        for r in d.get("result", []):
+            print(f"{r['type']:5} {r['name']} -> {r['content']} proxied={r['proxied']} ttl={r['ttl']}")
+        if not d.get("result"): print("(no record)")
+    elif cmd == "list":
+        if len(sys.argv) < 3:
+            sys.exit("usage: cf-dns list <zone>")
+        zone = sys.argv[2]
+        tok = token_for(zone); zid = zone_id(zone, tok)
+        d = call("GET", f"/zones/{zid}/dns_records?per_page=100", tok)
+        for r in sorted(d.get("result", []), key=lambda x: x["name"]):
+            print(f"{r['type']:6} {r['name']:40} -> {r['content']:30} proxied={r['proxied']}")
+    else:
+        sys.exit(__doc__)
+
+if __name__ == "__main__":
+    main()

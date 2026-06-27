@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# tailnet-mode {china|usa|status} — switch a device between your self-hosted Headscale (china)
+# and the official Tailscale cloud (usa).
+#
+# Run on EACH device (the home base, laptops; phones use the Tailscale app, not this script).
+# - macOS: tailscaled runs as root -> uses sudo automatically.
+# - Linux: with operator set, most commands need no sudo; `up` may still need it.
+#
+# Set your control plane URL once (pick either):
+#   export HEADSCALE_URL=https://hs.example.com
+#   echo https://hs.example.com > ~/.config/headscale-china-kit/headscale-url
+#
+# Switch-order iron rule (avoid locking yourself out):
+#   Before going to China (while abroad): switch the home base FIRST, then laptops/phones.
+#   After returning: switch the home base first (over the existing link), then the rest.
+#   Only ever switch the home base when you can reliably reach it.
+set -euo pipefail
+
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/headscale-china-kit/headscale-url"
+HEADSCALE_URL="${HEADSCALE_URL:-$( [[ -f "$CFG" ]] && head -n1 "$CFG" || true )}"
+TAILSCALE_URL="https://controlplane.tailscale.com"
+
+TS="tailscale"
+SUDO=""
+case "$(uname -s)" in
+  Darwin) SUDO="sudo" ;;
+  Linux)  : ;;
+esac
+
+usage() { echo "usage: tailnet-mode {china|usa|status}"; exit 2; }
+mode="${1:-}"; [[ -z "$mode" ]] && usage
+
+show() {
+  echo "---- current state ----"
+  $TS status 2>/dev/null | head -8 || true
+  echo "self IP: $($TS ip -4 2>/dev/null | head -n1 || echo '?')"
+  url="$($TS debug prefs 2>/dev/null | grep -o '"ControlURL":[^,]*' || true)"
+  echo "control: ${url:-unknown}"
+}
+
+# Security assertion: after switching, tailscale-ssh MUST be off (no "in the network = into the machine").
+# If RunSSH is still true, force it off and warn. This is a hard safety gate.
+assert_ssh_off() {
+  local runssh
+  runssh="$($TS debug prefs 2>/dev/null | grep -o '"RunSSH":[^,]*' | grep -o 'true\|false' || echo unknown)"
+  if [[ "$runssh" == "true" ]]; then
+    echo "WARNING: tailscale-ssh still ON (RunSSH=true)! Forcing off..." >&2
+    $SUDO $TS set --ssh=false 2>/dev/null || true
+    runssh="$($TS debug prefs 2>/dev/null | grep -o '"RunSSH":[^,]*' | grep -o 'true\|false')"
+    [[ "$runssh" == "false" ]] && echo "OK: tailscale-ssh forced off." >&2 \
+      || { echo "FATAL: could not turn off tailscale-ssh. Run 'tailscale set --ssh=false' and investigate." >&2; return 1; }
+  else
+    echo "OK: tailscale-ssh is off (RunSSH=$runssh). Login goes through traditional pubkey-only sshd."
+  fi
+}
+
+require_url() { [[ -n "$HEADSCALE_URL" ]] || { echo "set HEADSCALE_URL or $CFG first" >&2; exit 1; }; }
+
+case "$mode" in
+  china)
+    require_url
+    echo ">> switching to China mode (Headscale: $HEADSCALE_URL)"
+    echo "   note: first switch needs a preauth key / approved node on the Headscale side."
+    # --ssh=false: no tailscale-ssh (use traditional pubkey sshd). --accept-dns=false: no DNS hijack by control plane.
+    # --force-reauth: required when changing --login-server (else 'can't change --login-server without --force-reauth').
+    $SUDO $TS up --login-server="$HEADSCALE_URL" --ssh=false --accept-dns=false --reset --force-reauth || {
+      echo "failed: on Linux, retry with 'sudo tailnet-mode china' if it's a permissions issue" >&2; exit 1; }
+    assert_ssh_off; show ;;
+  usa)
+    echo ">> switching back to USA mode (official Tailscale cloud)"
+    $SUDO $TS up --login-server="$TAILSCALE_URL" --ssh=false --accept-dns=false --reset --force-reauth || {
+      echo "failed: on Linux, retry with 'sudo tailnet-mode usa' if it's a permissions issue" >&2; exit 1; }
+    assert_ssh_off; show ;;
+  status) show ;;
+  *) usage ;;
+esac

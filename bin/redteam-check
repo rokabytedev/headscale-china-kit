@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# redteam-check — HARD GATE before you rely on the link. Simulates "an attacker is already in the
+# tailnet but does NOT hold your SSH private key" and proves they still cannot log in here.
+# ANY failure = do not depend on this setup yet. Run this ON THE HOME BASE.
+#
+# Checks:
+#   1) tailscale-ssh is OFF (RunSSH=false) — else being in the network = passwordless login.
+#   2) traditional sshd is pubkey-only (PasswordAuthentication no, PubkeyAuthentication yes).
+#   3) (info) what's listening on :22.
+#   4) a freshly generated "stranger" key is REJECTED by this host's sshd.
+#   5) a local source restriction exists for :22 (defense in depth).
+#   6) host-key pinning (optional): this host's sshd host key matches EXPECT_HOSTKEY, and the ssh
+#      client uses StrictHostKeyChecking=yes for PEER.
+#
+# Env (optional):
+#   SSH_USER        user to attempt login as (default: current user)
+#   SELF_IP         this host's tailnet IP to test against (default: `tailscale ip -4`)
+#   EXPECT_HOSTKEY  expected SHA256 fingerprint of this host's ed25519 key (skip check if unset)
+#   PEER            an ssh host alias to verify StrictHostKeyChecking for (skip check if unset)
+set -uo pipefail
+PASS=0; FAIL=0
+ok(){ echo "  PASS $1"; PASS=$((PASS+1)); }
+no(){ echo "  FAIL $1"; FAIL=$((FAIL+1)); }
+
+SSH_USER="${SSH_USER:-$(id -un)}"
+SELF_IP="${SELF_IP:-$(tailscale ip -4 2>/dev/null | head -n1)}"
+
+echo "== red-team check on $(hostname) (user=$SSH_USER, self IP=${SELF_IP:-unknown}) =="
+
+echo "[1] tailscale-ssh off?"
+runssh="$(tailscale debug prefs 2>/dev/null | grep -o '"RunSSH":[^,]*' | grep -o 'true\|false' || echo unknown)"
+[[ "$runssh" == "false" ]] && ok "RunSSH=false (in-network != passwordless login)" \
+  || no "RunSSH=$runssh (DANGER — run: tailscale set --ssh=false)"
+
+echo "[2] sshd pubkey-only?"
+eff="$(sudo sshd -T 2>/dev/null)"
+if [[ -n "$eff" ]]; then
+  echo "$eff" | grep -qi '^passwordauthentication no' && ok "PasswordAuthentication no" || no "password auth not disabled"
+  echo "$eff" | grep -qi '^pubkeyauthentication yes' && ok "PubkeyAuthentication yes" || no "pubkey auth not enabled"
+else
+  echo "  (need sudo to read sshd -T; verify PasswordAuthentication no manually)"
+fi
+
+echo "[3] what's listening on :22 (info)"
+ss -tlnp 2>/dev/null | grep ':22 ' | awk '{print "      "$4}'
+
+echo "[4] stranger key rejected?"
+if [[ -n "$SELF_IP" ]]; then
+  TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+  ssh-keygen -t ed25519 -N '' -f "$TMP/evil" -q
+  out="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=8 \
+     -o IdentitiesOnly=yes -o PreferredAuthentications=publickey \
+     -i "$TMP/evil" "${SSH_USER}@${SELF_IP}" 'echo GOTIN' 2>&1)"
+  if echo "$out" | grep -q GOTIN; then
+    no "stranger key LOGGED IN (critical!)"
+  else
+    ok "stranger key rejected ($(echo "$out" | tail -1 | cut -c1-50))"
+  fi
+else
+  echo "  (no SELF_IP; set SELF_IP=<this host tailnet IP>)"
+fi
+
+echo "[5] local source restriction on :22?"
+if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q '22'; then
+  ok "ufw has a :22 rule (confirm it only allows your own devices' tailnet IPs)"
+else
+  echo "  WARN: no local :22 source restriction detected (defense-in-depth; on WSL2 use iptables on tailscale0)"
+fi
+
+echo "[6] host-key pinning (optional)"
+if [[ -n "${EXPECT_HOSTKEY:-}" ]]; then
+  got="$(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null | awk '{print $2}')"
+  [[ "$got" == "$EXPECT_HOSTKEY" ]] && ok "host key matches pinned value" \
+    || no "host key MISMATCH! got=$got expected=$EXPECT_HOSTKEY (possible swap/MITM — investigate)"
+else
+  echo "  (set EXPECT_HOSTKEY=SHA256:... to verify this host's key against your pinned value)"
+fi
+if [[ -n "${PEER:-}" ]]; then
+  _ruser="${SUDO_USER:-}"
+  if [[ -n "$_ruser" ]]; then _sshg=(sudo -u "$_ruser" ssh -G "$PEER"); else _sshg=(ssh -G "$PEER"); fi
+  if "${_sshg[@]}" 2>/dev/null | grep -qiE '^stricthostkeychecking (yes|true)'; then
+    ok "ssh $PEER: StrictHostKeyChecking enabled (rejects unknown host keys)"
+  else
+    no "ssh $PEER: StrictHostKeyChecking not set (default accept-new has TOFU/MITM risk)"
+  fi
+fi
+
+echo
+echo "== result: PASS=$PASS  FAIL=$FAIL =="
+[[ $FAIL -eq 0 ]] && echo "OK: red-team check passed — usable as a go/no-go gate." \
+                  || { echo "FAIL: $FAIL issue(s) — do not rely on this setup until fixed."; exit 1; }
