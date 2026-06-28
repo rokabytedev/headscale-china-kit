@@ -145,6 +145,7 @@ hard gate** before the user departs / starts depending on the link. Details in
 
 - **Full-tunnel exit:** home base advertises an exit node; approve the route manually on the VPS; then **enable it on the client and verify the egress IP changed** (test from a different network). See `references/exit-nodes.md` (server side) and `references/client-activation.md` (per-platform client toggle + verification).
 - **Residential exit node inside China** (disposable, treat as hostile): `bin/setup-cn-exit-node.sh` (+ the Windows autostart `.ps1`). The ACL gives it **inbound rules only and no `src` rules** — one-way isolation, so even if that machine is compromised it cannot reach anything else. See `references/exit-nodes.md`.
+- **Remote desktop at home (Linux/WSL):** when the user just wants to *run a browser at home* (log into sites under the home base's real overseas IP) rather than route all their traffic, set up an on-demand xrdp+XFCE desktop reached over a tailnet SSH tunnel: `bin/setup-rdp-desktop.sh` / `bin/stop-rdp-desktop.sh`. Loopback-only, no new exposure. See `references/remote-desktop.md`.
 - **On-demand lifecycle / recovery / return home:** `references/lifecycle-and-recovery.md` + `bin/return-home.sh`, `bin/vpn-watchdog.sh`. The "real identity" is the domain + node keys; the swappable layer is the VPS IP — if blocked, re-point DNS and devices auto-reconnect with no re-enrollment.
 
 ## Quick reference
@@ -158,10 +159,11 @@ hard gate** before the user departs / starts depending on the link. Details in
 | Enroll, tag, pin IP, sshd keys | `references/device-enrollment.md` |
 | Connect each client (desktop + phone) + verify | `references/client-activation.md` |
 | Exit nodes (home + in-China) | `references/exit-nodes.md` |
+| Remote desktop at home (run a browser there) | `references/remote-desktop.md` |
 | Teardown / rebuild / emergencies | `references/lifecycle-and-recovery.md` |
 | Install Headscale (server) | `vps/install-headscale.sh` |
 | Config + ACL templates | `vps/*.tmpl` |
-| Client helpers | `bin/` (`tnip`, `tailnet-mode`, `cf-dns`, `harden-sshd.sh`, `redteam-check`, `return-home.sh`, `vpn-watchdog.sh`, `setup-cn-exit-node*`) |
+| Client helpers | `bin/` (`tnip`, `tailnet-mode`, `cf-dns`, `harden-sshd.sh`, `redteam-check`, `return-home.sh`, `vpn-watchdog.sh`, `setup-cn-exit-node*`, `setup-rdp-desktop.sh`, `stop-rdp-desktop.sh`) |
 
 ## Common mistakes
 

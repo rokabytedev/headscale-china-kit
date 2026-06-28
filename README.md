@@ -55,6 +55,7 @@ references/                   # deep-dive docs (read on demand)
   device-enrollment.md        # one-time keys, tagging, IP pin, pubkey sshd
   client-activation.md        # connect each client (desktop+phone), exit-node toggle, verify
   exit-nodes.md               # home exit node + in-China disposable exit node
+  remote-desktop.md           # xrdp+XFCE desktop on the home base (run a browser there)
   lifecycle-and-recovery.md   # teardown / rebuild / emergencies / return home
 vps/                          # server-side (run on the VPS)
   install-headscale.sh
@@ -63,6 +64,7 @@ vps/                          # server-side (run on the VPS)
 bin/                          # client-side helper scripts
   tnip  tailnet-mode  cf-dns  harden-sshd.sh  redteam-check
   setup-cn-exit-node.sh  setup-cn-exit-node-windows.ps1
+  setup-rdp-desktop.sh  stop-rdp-desktop.sh
   vpn-watchdog.sh  return-home.sh
 ```
 
