@@ -53,6 +53,7 @@ references/                   # deep-dive docs (read on demand)
   security-model.md           # threat model + hardening + red-team verify
   headscale-setup.md          # config.yaml + ACL + DNS, with gotchas
   device-enrollment.md        # one-time keys, tagging, IP pin, pubkey sshd
+  client-activation.md        # connect each client (desktop+phone), exit-node toggle, verify
   exit-nodes.md               # home exit node + in-China disposable exit node
   lifecycle-and-recovery.md   # teardown / rebuild / emergencies / return home
 vps/                          # server-side (run on the VPS)

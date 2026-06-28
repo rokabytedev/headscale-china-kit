@@ -40,6 +40,32 @@ removes that uncertainty** because all three networks get a premium path.
 - **Avoid China-company clouds** (e.g. mainland-affiliated "HK lite" offerings) for this purpose: privacy exposure, monthly-only billing that defeats on-demand, and account-suspension reports for "cross-border access" use.
 - **A phone on an overseas roaming/eSIM plan** (traffic egresses abroad) is a useful fallback and emergency back door, unaffected by domestic routing.
 
+## Concrete recommendation (a known-good starting point)
+
+If China Telecom is in the mix — or you don't know which ISP the user will be on —
+the dependable default is a **CN2 GIA** box at **BandwagonHost (搬瓦工)**, Los
+Angeles datacenter **`USCA_9`** (the KiwiVM backend code for their LA
+China-Telecom CN2 GIA room; all three China networks ride the premium AS4809
+path). It's a well-worn, low-cost entry CN2 GIA line — a solid always-on primary.
+
+**How to actually get `USCA_9`:** BandwagonHost lists/delists the standalone
+"CN2 GIA limited edition" plans often, so don't count on a plan literally named
+for it. Reliable route: buy any in-stock **CN2 GIA** plan (e.g. *The CN2 GIA-E
+Plan*), then in the **KiwiVM** panel use **Migrate to another DC → `USCA_9`
+(Los Angeles, CN2 GIA)**. Roughly the **$50–$90/yr** tier — yearly billing, so
+exact price / stock / plan names drift; confirm at bandwagonhost.com. That
+quarterly/yearly billing makes CN2 GIA an **always-on** choice, not an hourly
+on-demand one.
+
+Once it's up, probe its IP on `itdog.cn` (below) for the user's ISP before
+relying on it: a healthy `USCA_9` shows a low Telecom timeout rate and
+~150ms-ish across all three networks.
+
+**If Telecom is *not* in the mix, or you want true on-demand** (destroy when
+idle): a JP/KR mass cloud billed hourly — e.g. Vultr or Linode **Tokyo / Seoul** —
+is usually the better all-rounder; CN2 GIA's yearly billing fights
+destroy-when-idle.
+
 ## Measure before committing — itdog.cn
 
 Most providers publish a free **test IP** you can probe without buying anything.

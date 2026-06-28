@@ -75,6 +75,9 @@ optionally local iptables on `tailscale0`), not via `ListenAddress`.
 
 ## Phones
 
+Exact per-app tap sequences (incl. exit-node selection) live in
+`client-activation.md`. The essentials:
+
 - **Tailscale app:** add a custom control server (`https://hs.example.com`), enroll with a one-time key. To resolve `*.<service domain>` / MagicDNS short names, turn **on** "Use Tailscale DNS" in the app (this is the phone exception to `accept-dns=false`; the config's empty `global` keeps normal browsing intact).
 - **SSH:** use a reputable SSH client app that generates its **own** keypair (private key stays on the phone). Add its public key to the home base / laptop `authorized_keys`. Do **not** rely on tailscale-ssh.
 

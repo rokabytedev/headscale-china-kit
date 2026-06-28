@@ -43,6 +43,12 @@ This is an **interview-first deployment** skill. Do NOT ask the user to pick a
 solution — the solution is in this kit. Ask only about their devices,
 preferences, and constraints, then recommend and execute.
 
+**Definition of done:** every device the user named is connected to the control
+plane and the user has **confirmed their actual goal works** (SSH home / reach a
+service / full-tunnel exit) — not merely that Headscale is healthy. Getting the
+clients live is part of the job; automate what you can and give the user the
+fewest possible manual steps (`references/client-activation.md`).
+
 ```dot
 digraph flow {
   rankdir=LR;
@@ -51,7 +57,7 @@ digraph flow {
   recommend [label="1. Recommend\narchitecture"];
   provision [label="2. VPS + domain"];
   install   [label="3. Install\nHeadscale"];
-  enroll    [label="4. Enroll +\ntag devices"];
+  enroll    [label="4. Enroll + tag\n+ activate clients"];
   harden    [label="5. Harden\n(sshd, ACL, DNS)"];
   verify    [label="6. Red-team\nverify"];
   optional  [label="7. Exit nodes /\nlifecycle"];
@@ -98,16 +104,25 @@ HS_HOSTNAME=hs.example.com VPS_IP=<public-ip> HS_USER=<name> bash install-headsc
 It pins a known-good Headscale version, opens only 443 to the public, and
 verifies HTTPS health at the end.
 
-### Step 4 — Enroll and tag each device
+### Step 4 — Enroll, tag, and *activate* each device
 
-**Read `references/device-enrollment.md`.** Per device: mint a **one-time,
-short-lived** preauth key on the VPS, run `tailscale up --login-server=https://hs.<domain>
---ssh=false --accept-dns=false --reset --force-reauth --authkey=<key>`, then
-**expire the key immediately** and **force a tag** on the node from the VPS
-(`headscale nodes tag`). Headscale has no device-approval toggle — the
-one-time-key + immediate-expire + tag flow IS the manual approval. Optionally
-pin the home base's tailnet IP so existing `.pc`/DNS/known_hosts keep working.
-`bin/tnip <name>` resolves any peer's current IP regardless of control plane.
+**Read `references/device-enrollment.md`** (server-side approval) **and
+`references/client-activation.md`** (getting each client actually connected). Per
+device: mint a **one-time, short-lived** preauth key on the VPS, run `tailscale up
+--login-server=https://hs.<domain> --ssh=false --accept-dns=false --reset
+--force-reauth --authkey=<key>`, then **expire the key immediately** and **force a
+tag** on the node from the VPS (`headscale nodes tag`). Headscale has no
+device-approval toggle — the one-time-key + immediate-expire + tag flow IS the
+manual approval. Optionally pin the home base's tailnet IP so existing
+`.pc`/DNS/known_hosts keep working. `bin/tnip <name>` resolves any peer's current
+IP regardless of control plane.
+
+This step is **not finished until the client is actually up on each device** —
+including the user's phone and desktop. **Automate every step you can** (run the
+CLI yourself on any machine you can reach), and hand the user the **minimum**
+manual action: one command to paste on a desktop, a short tap-sequence on a phone
+(the iOS/Android GUI is the only part you can't automate). Mint the key for them
+so they never touch `headscale`. See `references/client-activation.md`.
 
 ### Step 5 — Harden (the part that makes this safe)
 
@@ -128,7 +143,7 @@ hard gate** before the user departs / starts depending on the link. Details in
 
 ### Step 7 — Optional: exit nodes & lifecycle
 
-- **Full-tunnel exit:** home base advertises an exit node; approve the route manually on the VPS; devices toggle it on demand. See `references/exit-nodes.md`.
+- **Full-tunnel exit:** home base advertises an exit node; approve the route manually on the VPS; then **enable it on the client and verify the egress IP changed** (test from a different network). See `references/exit-nodes.md` (server side) and `references/client-activation.md` (per-platform client toggle + verification).
 - **Residential exit node inside China** (disposable, treat as hostile): `bin/setup-cn-exit-node.sh` (+ the Windows autostart `.ps1`). The ACL gives it **inbound rules only and no `src` rules** — one-way isolation, so even if that machine is compromised it cannot reach anything else. See `references/exit-nodes.md`.
 - **On-demand lifecycle / recovery / return home:** `references/lifecycle-and-recovery.md` + `bin/return-home.sh`, `bin/vpn-watchdog.sh`. The "real identity" is the domain + node keys; the swappable layer is the VPS IP — if blocked, re-point DNS and devices auto-reconnect with no re-enrollment.
 
@@ -141,6 +156,7 @@ hard gate** before the user departs / starts depending on the link. Details in
 | Threat model + hardening + red-team | `references/security-model.md` |
 | Headscale config + ACL + DNS | `references/headscale-setup.md` |
 | Enroll, tag, pin IP, sshd keys | `references/device-enrollment.md` |
+| Connect each client (desktop + phone) + verify | `references/client-activation.md` |
 | Exit nodes (home + in-China) | `references/exit-nodes.md` |
 | Teardown / rebuild / emergencies | `references/lifecycle-and-recovery.md` |
 | Install Headscale (server) | `vps/install-headscale.sh` |
